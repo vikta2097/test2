@@ -1,798 +1,812 @@
-// BusinessDemoFull.js
+// src/EMSDemo.js
 import React, { useEffect, useState } from "react";
 
 /*
-  Full frontend-only e-commerce demo (localStorage)
-  - Single file, inline styles
-  - Roles: admin / customer
-  - Data persisted under keys: demo_products, demo_users, demo_cart_{username}, demo_orders, demo_notifications, demo_bookings
+  EMSDemo.js
+  - Single-file EMS demo (React)
+  - All inline styles, localStorage persistence
+  - Role-aware: admin / employee
+  - Modules: Dashboard, Employees (admin), Attendance, Leave, Payroll
+  - Notifications + Chatbot (menu-driven)
 */
+/* eslint-disable no-unused-vars */
 
-/* ---------- Utilities & Sample Data ---------- */
-const LS = {
-  get: (k, fallback) => {
-    try {
-      const v = localStorage.getItem(k);
-      return v ? JSON.parse(v) : fallback;
-    } catch {
-      return fallback;
-    }
-  },
-  set: (k, v) => localStorage.setItem(k, JSON.stringify(v)),
-  remove: (k) => localStorage.removeItem(k),
+const STORAGE_KEY = "ems_demo_app_v2";
+
+const initialState = {
+  users: [
+    { id: "u_admin", email: "admin@test.com", password: "1234", role: "admin", name: "Admin User" },
+    { id: "u_user", email: "user@test.com", password: "1234", role: "employee", name: "Jane Doe" },
+  ],
+  employees: [
+    { id: "e1", name: "Jane Doe", department: "Engineering", jobTitle: "Frontend Dev", salary: 1500, status: "active" },
+    { id: "e2", name: "Sam Okoth", department: "HR", jobTitle: "HR Manager", salary: 1300, status: "active" },
+    { id: "e3", name: "Alice Mwangi", department: "Finance", jobTitle: "Accountant", salary: 1400, status: "active" },
+  ],
+  attendance: [
+    // {id, employeeId, date, status}
+  ],
+  leaves: [
+    // {id, employeeId, startDate, endDate, reason, status}
+  ],
+  payslips: [
+    // {id, employeeId, month, year, gross, net}
+  ],
+  notifications: [
+    { id: 1, text: "Welcome to the EMS demo!", createdAt: Date.now(), read: false }
+  ]
 };
 
-const SAMPLE_PRODUCTS = [
-  { id: 1, name: "Smartphone", description: "Modern smartphone", price: 250, stock: 10, image: "https://via.placeholder.com/300?text=Smartphone" },
-  { id: 2, name: "Headphones", description: "Noise-cancelling headphones", price: 50, stock: 20, image: "https://via.placeholder.com/300?text=Headphones" },
-  { id: 3, name: "Laptop", description: "Lightweight laptop", price: 800, stock: 5, image: "https://via.placeholder.com/300?text=Laptop" },
-];
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return initialState;
+    const parsed = JSON.parse(raw);
+    // Merge defaults with stored (keeps new shape)
+    return { ...initialState, ...parsed };
+  } catch (e) {
+    console.error("Load state error", e);
+    return initialState;
+  }
+}
+function saveState(state) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
 
-const sampleUsers = [
-  { username: "admin", role: "admin", name: "Admin User" },
-  { username: "alice", role: "customer", name: "Alice Customer" },
-];
-
-/* ---------- Inline Styles ---------- */
-const theme = {
-  blue: "#005bb5",
-  lightBlue: "#66b3ff",
-  bg: "#f0f6fc",
-  card: "#ffffff",
+/* ---------- Inline styles ---------- */
+const styles = {
+  app: { fontFamily: "Inter, Arial, sans-serif", height: "100vh", display: "flex", flexDirection: "column", background: "#f3f6fb", color: "#1f2937" },
+  header: { height: 64, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", boxShadow: "0 2px 6px rgba(2,6,23,0.15)" },
+  headerLeft: { display: "flex", alignItems: "center", gap: 12 },
+  logo: { fontWeight: 700, fontSize: 18 },
+  headerRight: { display: "flex", alignItems: "center", gap: 10 },
+  main: { display: "flex", flex: 1, overflow: "hidden" },
+  sidebar: { width: 220, background: "#0b1220", color: "white", padding: 16, display: "flex", flexDirection: "column", gap: 8 },
+  mainContent: { flex: 1, padding: 20, overflowY: "auto" },
+  sectionCard: { background: "white", padding: 18, borderRadius: 10, boxShadow: "0 4px 10px rgba(15,23,42,0.06)", marginBottom: 18 },
+  smallCardRow: { display: "flex", gap: 12, marginBottom: 16 },
+  statCard: { flex: 1, padding: 12, borderRadius: 8, background: "#0f172a", color: "white", textAlign: "center" },
+  button: { background: "#0369a1", color: "white", padding: "8px 12px", border: "none", borderRadius: 8, cursor: "pointer" },
+  ghostButton: { background: "transparent", color: "white", padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, cursor: "pointer" },
+  input: { padding: "8px 10px", borderRadius: 6, border: "1px solid #e6eef6", width: "100%" },
+  table: { width: "100%", borderCollapse: "collapse", marginTop: 10 },
+  th: { textAlign: "left", padding: 8, borderBottom: "1px solid #edf2f7", background: "#f8fafc" },
+  td: { padding: 8, borderBottom: "1px solid #f1f5f9" },
+  notifArea: { position: "relative" },
+  notifBtn: { background: "transparent", color: "white", border: "none", fontSize: 18, cursor: "pointer", position: "relative" },
+  notifCount: { position: "absolute", top: -6, right: -6, background: "#ef4444", color: "white", width: 18, height: 18, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 },
+  notifPanel: { position: "absolute", right: 0, marginTop: 8, width: 320, background: "white", color: "#111827", borderRadius: 8, boxShadow: "0 10px 30px rgba(2,6,23,0.12)", padding: 12, zIndex: 60 },
+  chatToggle: { position: "fixed", left: 20, bottom: 20, width: 56, height: 56, borderRadius: 28, background: "#0369a1", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, cursor: "pointer", boxShadow: "0 6px 18px rgba(3,105,161,0.24)" },
+  chatWindow: { position: "fixed", left: 20, bottom: 86, width: 300, height: 360, background: "white", borderRadius: 10, boxShadow: "0 10px 30px rgba(2,6,23,0.12)", display: "flex", flexDirection: "column", overflow: "hidden", zIndex: 80 },
+  chatHeader: { background: "#0369a1", color: "white", padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" },
+  chatBody: { padding: 10, flex: 1, overflowY: "auto", background: "#fbfdff" },
+  chatInputRow: { display: "flex", gap: 8, padding: 10, borderTop: "1px solid #eef2f7" },
+  badge: { display: "inline-block", padding: "6px 10px", background: "#eef2ff", borderRadius: 8, color: "#0f172a", fontSize: 13 }
 };
 
-const S = {
-  page: { minHeight: "100vh", fontFamily: "Inter, Arial, sans-serif", background: theme.bg, color: "#123" },
-  centerWrap: { minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" },
-  loginBox: { background: theme.card, padding: 20, borderRadius: 12, boxShadow: "0 6px 18px rgba(0,0,0,0.08)", width: 360 },
-  btn: (bg = theme.blue, color = "#fff") => ({ background: bg, color, border: "none", padding: "10px 12px", borderRadius: 8, cursor: "pointer" }),
-  appWrap: { display: "flex", minHeight: "100vh" },
-  sidebar: { width: 260, background: theme.card, padding: 20, borderRight: "1px solid #e6eef9", display: "flex", flexDirection: "column" },
-  navBtn: { padding: "10px 12px", marginBottom: 8, borderRadius: 8, border: "none", textAlign: "left", cursor: "pointer", background: "none", fontWeight: 600 },
-  activeNav: { background: theme.blue, color: "#fff" },
-  main: { flex: 1, padding: 24, overflowY: "auto" },
-  headerRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 16 },
-  card: { background: theme.card, borderRadius: 12, padding: 12, boxShadow: "0 4px 10px rgba(0,0,0,0.06)" },
-  img: { width: "100%", height: 150, objectFit: "cover", borderRadius: 8 },
-  small: { fontSize: 13, color: "#556" },
-  input: { padding: 8, borderRadius: 8, border: "1px solid #d4e6fb", width: "100%" },
-  formRow: { marginBottom: 10 },
-  table: { width: "100%", borderCollapse: "collapse" },
-  th: { textAlign: "left", padding: 8, borderBottom: "1px solid #eee" },
-  td: { padding: 8, borderBottom: "1px solid #f5f7fb" },
-  badge: (bg) => ({ display: "inline-block", padding: "4px 8px", borderRadius: 12, background: bg, color: "#fff", fontSize: 12 }),
-};
+/* ---------- Utility helpers ---------- */
+const uid = (p = "") => p + Math.random().toString(36).substring(2, 9);
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 /* ---------- Main Component ---------- */
-export default function BusinessDemoFull() {
-  /* ---------- persisted state keys ---------- */
-  const PROD_KEY = "demo_products";
-  const USER_KEY = "demo_users";
-  const ORDERS_KEY = "demo_orders";
-  const NOTIF_KEY = "demo_notifications";
-  const BOOK_KEY = "demo_bookings";
+export default function EMSDemo() {
+  const [store, setStore] = useState(() => loadState());
+  const [currentUser, setCurrentUser] = useState(null);
+  const [view, setView] = useState("dashboard"); // dashboard, employees, attendance, leave, payroll
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMenuPointer, setChatMenuPointer] = useState([]); // stack for menu navigation
+  const [chatMessages, setChatMessages] = useState([{ id: uid("m_"), from: "bot", text: "Hi — EMS assistant here. Choose an option." }]);
 
-  /* ---------- state ---------- */
-  const [user, setUser] = useState(null); // { username, role, name }
-  const [view, setView] = useState("shop"); // shop, admin, cart, orders, dashboard, bookings, notifications, profile
-  const [products, setProducts] = useState([]);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("");
-  const [cart, setCart] = useState([]); // live cart for signed-in user
-  const [orders, setOrders] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [bookings, setBookings] = useState([]);
+  // persist on store change
+  useEffect(() => saveState(store), [store]);
 
-  /* ---------- initialize from localStorage ---------- */
-  useEffect(() => {
-    const p = LS.get(PROD_KEY, null);
-    if (!p) LS.set(PROD_KEY, SAMPLE_PRODUCTS);
-    setProducts(LS.get(PROD_KEY, SAMPLE_PRODUCTS));
+  // Basic auth handler
+  function login(email, password) {
+    const u = store.users.find(x => x.email === email && x.password === password);
+    if (!u) return alert("Invalid credentials.");
+    setCurrentUser(u);
+    // If user is employee, try to map to employee record by name
+    setView("dashboard");
+    pushNotification(`${u.name} logged in`);
+  }
 
-    const us = LS.get(USER_KEY, null);
-    if (!us) LS.set(USER_KEY, sampleUsers);
-    // orders, notifications, bookings
-    setOrders(LS.get(ORDERS_KEY, []));
-    setNotifications(LS.get(NOTIF_KEY, []));
-    setBookings(LS.get(BOOK_KEY, []));
-  }, []);
+  function logout() {
+    setCurrentUser(null);
+    setView("dashboard");
+  }
 
-  /* ---------- keep user-specific cart in localStorage key demo_cart_{username} ---------- */
-  useEffect(() => {
-    if (user) {
-      const key = `demo_cart_${user.username}`;
-      const saved = LS.get(key, []);
-      setCart(saved);
-    } else {
-      setCart([]);
-    }
-  }, [user]);
+  /* ---------- Notifications ---------- */
+  function pushNotification(text) {
+    const n = { id: uid("n_"), text, createdAt: Date.now(), read: false };
+    setStore(prev => ({ ...prev, notifications: [...prev.notifications, n] }));
+  }
+  function markAllNotifRead() {
+    setStore(prev => ({ ...prev, notifications: prev.notifications.map(x => ({ ...x, read: true })) }));
+  }
 
-  useEffect(() => {
-    if (user) {
-      const key = `demo_cart_${user.username}`;
-      LS.set(key, cart);
-    }
-  }, [cart, user]);
+  /* ---------- Employees CRUD (Admin) ---------- */
+  function addEmployee({ name, department, jobTitle, salary }) {
+    const newEmp = { id: uid("e_"), name, department, jobTitle, salary: Number(salary || 0), status: "active" };
+    setStore(prev => ({ ...prev, employees: [...prev.employees, newEmp] }));
+    pushNotification(`Employee added: ${name}`);
+  }
+  function removeEmployee(empId) {
+    setStore(prev => ({ ...prev, employees: prev.employees.filter(e => e.id !== empId) }));
+    pushNotification(`Employee removed`);
+  }
 
-  /* ---------- helpers ---------- */
-  const saveProducts = (next) => {
-    LS.set(PROD_KEY, next);
-    setProducts(next);
-  };
-  const saveOrders = (next) => {
-    LS.set(ORDERS_KEY, next);
-    setOrders(next);
-  };
-  const saveNotifs = (next) => {
-    LS.set(NOTIF_KEY, next);
-    setNotifications(next);
-  };
-  const saveBookings = (next) => {
-    LS.set(BOOK_KEY, next);
-    setBookings(next);
-  };
-
-  const login = (username) => {
-    const users = LS.get(USER_KEY, sampleUsers);
-    const found = users.find((u) => u.username === username);
-    if (found) {
-      setUser(found);
-      setView(found.role === "admin" ? "admin" : "shop");
-    } else {
-      alert("User not found (demo). Try 'admin' or 'alice'.");
-    }
-  };
-
-  const registerDemoUser = (username, name) => {
-    const users = LS.get(USER_KEY, sampleUsers);
-    if (users.find((u) => u.username === username)) {
-      alert("Username exists. Choose another.");
-      return;
-    }
-    const newU = { username, role: "customer", name };
-    users.push(newU);
-    LS.set(USER_KEY, users);
-    setUser(newU);
-    setView("shop");
-  };
-
-  const logout = () => {
-    setUser(null);
-    setView("shop");
-  };
-
-  /* ---------- product management (admin) ---------- */
-  const addProduct = (prod) => {
-    const next = [...products, prod];
-    saveProducts(next);
-  };
-  const updateProduct = (id, patch) => {
-    const next = products.map((p) => (p.id === id ? { ...p, ...patch } : p));
-    saveProducts(next);
-  };
-  const deleteProduct = (id) => {
-    if (!window.confirm("Delete product?")) return;
-    const next = products.filter((p) => p.id !== id);
-    saveProducts(next);
-  };
-
-  /* ---------- cart ---------- */
-  const addToCart = (product, qty = 1) => {
-    if (!user) return alert("Please login as a customer to add to cart.");
-    // check stock
-    const p = products.find((x) => x.id === product.id);
-    if (p && p.stock < qty) {
-      return alert("Not enough stock.");
-    }
-    const exists = cart.find((c) => c.id === product.id);
-    let next;
+  /* ---------- Attendance ---------- */
+  function markAttendance(employeeId, status) {
+    const rec = { id: uid("a_"), employeeId, date: todayISO(), status };
+    // avoid duplicate for same employee/day
+    const exists = store.attendance.find(a => a.employeeId === employeeId && a.date === rec.date);
     if (exists) {
-      next = cart.map((c) => (c.id === product.id ? { ...c, qty: c.qty + qty } : c));
-    } else {
-      next = [...cart, { ...product, qty }];
-    }
-    setCart(next);
-  };
-
-  const updateCartQty = (id, qty) => {
-    if (qty <= 0) {
-      setCart(cart.filter((c) => c.id !== id));
+      alert("Attendance already marked for today for that employee.");
       return;
     }
-    setCart(cart.map((c) => (c.id === id ? { ...c, qty } : c)));
-  };
+    setStore(prev => ({ ...prev, attendance: [...prev.attendance, rec] }));
+    pushNotification(`Attendance: ${employeeById(employeeId)?.name} — ${status}`);
+  }
 
-  /* ---------- checkout (creates order) ---------- */
-  const checkout = (customerDetails = {}) => {
-    if (!user) return alert("Please login to checkout.");
-    if (cart.length === 0) return alert("Cart is empty.");
-    // validate stock
-    for (const item of cart) {
-      const prod = products.find((p) => p.id === item.id);
-      if (!prod || prod.stock < item.qty) return alert(`Not enough stock for ${item.name}`);
+  /* ---------- Leave ---------- */
+  function applyLeave(employeeId, startDate, endDate, reason) {
+    const leave = { id: uid("l_"), employeeId, startDate, endDate, reason, status: "Pending" };
+    setStore(prev => ({ ...prev, leaves: [...prev.leaves, leave] }));
+    pushNotification(`Leave applied by ${employeeById(employeeId)?.name}`);
+  }
+  function setLeaveStatus(leaveId, status) {
+    setStore(prev => ({ ...prev, leaves: prev.leaves.map(l => l.id === leaveId ? { ...l, status } : l) }));
+    pushNotification(`Leave ${status}`);
+  }
+
+  /* ---------- Payroll ---------- */
+  function generatePayslip(employeeId, month, year) {
+    const emp = employeeById(employeeId);
+    if (!emp) return;
+    const gross = emp.salary || 0;
+    const net = Math.round(gross * 0.9);
+    const ps = { id: uid("p_"), employeeId, month, year, gross, net, createdAt: Date.now() };
+    setStore(prev => ({ ...prev, payslips: [...prev.payslips, ps] }));
+    pushNotification(`Payslip: ${emp.name} (${month}/${year})`);
+  }
+
+  /* ---------- Helpers ---------- */
+  function employeeById(id) {
+    return store.employees.find(e => e.id === id);
+  }
+  function currentEmployeeRecord() {
+    // Try to find employee record for the logged-in user by name
+    if (!currentUser) return null;
+    return store.employees.find(e => e.name.toLowerCase().includes(currentUser.name.split(" ")[0].toLowerCase()));
+  }
+
+  /* ---------- Chatbot (menu-driven) ---------- */
+  function chatSendUser(text) {
+    const userMsg = { id: uid("m_"), from: "user", text };
+    setChatMessages(c => [...c, userMsg]);
+    // Interpret user's input based on current menu pointer
+    const lower = text.trim().toLowerCase();
+    if (lower === "menu" || lower === "m") {
+      setChatMenuPointer([]);
+      chatBotReply("Main menu: choose 1) Quick summary 2) Attendance 3) Leave 4) Payroll 5) Help");
+      return;
     }
-    // decrement stock
-    const nextProducts = products.map((p) => {
-      const cartItem = cart.find((c) => c.id === p.id);
-      if (cartItem) return { ...p, stock: p.stock - cartItem.qty };
-      return p;
-    });
-    saveProducts(nextProducts);
-
-    const newOrder = {
-      id: Date.now(),
-      customer: user.username,
-      customerName: user.name,
-      items: cart.map((c) => ({ id: c.id, name: c.name, price: c.price, qty: c.qty })),
-      total: cart.reduce((s, it) => s + it.price * it.qty, 0),
-      status: "pending",
-      createdAt: new Date().toISOString(),
-      details: customerDetails,
-    };
-    const nextOrders = [newOrder, ...orders];
-    saveOrders(nextOrders);
-
-    // clear cart
-    setCart([]);
-    alert("✅ Order placed (demo).");
-    setView("orders");
-  };
-
-  /* ---------- orders admin actions ---------- */
-  const updateOrderStatus = (orderId, status) => {
-    const next = orders.map((o) => (o.id === orderId ? { ...o, status } : o));
-    saveOrders(next);
-  };
-
-  /* ---------- notifications ---------- */
-  const postNotification = (title, message) => {
-    const n = { id: Date.now(), title, message, postedAt: new Date().toISOString() };
-    const next = [n, ...notifications];
-    saveNotifs(next);
-  };
-  const removeNotification = (id) => {
-    const next = notifications.filter((n) => n.id !== id);
-    saveNotifs(next);
-  };
-
-  /* ---------- bookings ---------- */
-  const createBooking = (booking) => {
-    const b = { id: Date.now(), ...booking, status: "requested", createdAt: new Date().toISOString() };
-    const next = [b, ...bookings];
-    saveBookings(next);
-  };
-  const updateBookingStatus = (id, status) => {
-    const next = bookings.map((b) => (b.id === id ? { ...b, status } : b));
-    saveBookings(next);
-  };
-
-  /* ---------- filtering & derived ---------- */
-  const filteredProducts = products.filter((p) => {
-    const q = search.trim().toLowerCase();
-    if (q && !(`${p.name} ${p.description}`.toLowerCase().includes(q))) return false;
-    if (filter === "outofstock") return p.stock === 0;
-    if (filter === "lowstock") return p.stock > 0 && p.stock <= 5;
-    return true;
-  });
-
-  const totalCart = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const totalSales = orders.reduce((s, o) => s + (o.status !== "cancelled" ? o.total : 0), 0);
-  const totalOrders = orders.length;
-  const totalProducts = products.length;
-
-  /* ---------- small UI subcomponents ---------- */
-  const LoginView = () => {
-    const [userIn, setUserIn] = useState("alice");
-    const [registerName, setRegisterName] = useState("");
-    const [registerUser, setRegisterUser] = useState("");
-    return (
-      <div style={{ ...S.centerWrap }}>
-        <div style={S.loginBox}>
-          <h2 style={{ marginTop: 0 }}>VictorLabs — Demo Store</h2>
-          <p className="small">Login as a demo user</p>
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <select value={userIn} onChange={(e) => setUserIn(e.target.value)} style={{ flex: 1, padding: 8, borderRadius: 8 }}>
-              <option value="admin">admin (admin)</option>
-              <option value="alice">alice (customer)</option>
-            </select>
-            <button style={S.btn()} onClick={() => login(userIn)}>Login</button>
-          </div>
-
-          <hr style={{ margin: "14px 0" }} />
-
-          <h4 style={{ marginBottom: 8 }}>Register (demo)</h4>
-          <input placeholder="Full name" value={registerName} onChange={(e) => setRegisterName(e.target.value)} style={{ ...S.input, marginBottom: 8 }} />
-          <input placeholder="Username" value={registerUser} onChange={(e) => setRegisterUser(e.target.value)} style={{ ...S.input, marginBottom: 8 }} />
-          <button style={S.btn(theme.lightBlue)} onClick={() => { if (!registerName || !registerUser) return alert("Fill both"); registerDemoUser(registerUser.trim(), registerName.trim()); }}>
-            Register & Login
-          </button>
-
-          <p style={{ marginTop: 12, fontSize: 13 }} className="small">
-            Demo store uses <b>localStorage</b>. You can register and try features — nothing is sent anywhere.
-          </p>
-        </div>
-      </div>
-    );
-  };
-
-  const Sidebar = () => (
-    <div style={S.sidebar}>
-      <h3 style={{ color: theme.blue }}>VictorLabs Demo</h3>
-      <div style={{ marginTop: 8 }}>
-        <button style={{ ...S.navBtn, ...(view === "dashboard" ? S.activeNav : {}) }} onClick={() => setView("dashboard")}>Dashboard</button>
-        <button style={{ ...S.navBtn, ...(view === "shop" ? S.activeNav : {}) }} onClick={() => setView("shop")}>Shop</button>
-        <button style={{ ...S.navBtn, ...(view === "cart" ? S.activeNav : {}) }} onClick={() => setView("cart")}>Cart ({cart.length})</button>
-        <button style={{ ...S.navBtn, ...(view === "orders" ? S.activeNav : {}) }} onClick={() => setView("orders")}>Orders</button>
-        <button style={{ ...S.navBtn, ...(view === "bookings" ? S.activeNav : {}) }} onClick={() => setView("bookings")}>Bookings</button>
-        <button style={{ ...S.navBtn, ...(view === "notifications" ? S.activeNav : {}) }} onClick={() => setView("notifications")}>Notifications</button>
-      </div>
-
-      <div style={{ marginTop: "auto" }}>
-        {user ? (
-          <>
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontWeight: 700 }}>{user.name}</div>
-              <div style={{ fontSize: 13, color: "#556" }}>{user.role}</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button style={S.btn(theme.lightBlue)} onClick={() => setView("profile")}>Profile</button>
-              <button style={S.btn("#e24b4b")} onClick={logout}>Logout</button>
-            </div>
-          </>
-        ) : (
-          <div>
-            <button style={S.btn()} onClick={() => setView("login")}>Login / Register</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  /* ---------- admin product form modal (simple inline) ---------- */
-  function AdminProductManager() {
-    const empty = { id: null, name: "", description: "", price: 0, stock: 1, image: "" };
-    const [editing, setEditing] = useState(null);
-    const [form, setForm] = useState(empty);
-
-    useEffect(() => {
-      if (editing) {
-        const prod = products.find((p) => p.id === editing);
-        setForm(prod ? { ...prod } : empty);
+    // If menu-driven numeric commands:
+    if (lower === "1" || lower === "quick" || lower === "summary") {
+      showQuickSummary();
+      return;
+    }
+    if (lower === "2" || lower === "attendance") {
+      if (currentUser.role === "admin") {
+        chatBotReply("Admin: go to Attendance tab to view and mark attendance for any employee.");
       } else {
-        setForm(empty);
+        chatBotReply("Employee: you can mark your attendance in Attendance tab (Mark Present / Absent).");
       }
-    }, [editing]);
-
-    const startNew = () => { setEditing("new"); setForm({ ...empty, id: Date.now() }); };
-    const save = () => {
-      if (!form.name) return alert("Provide name");
-      if (editing === "new") {
-        addProduct(form);
-      } else {
-        updateProduct(form.id, form);
+      return;
+    }
+    if (lower === "3" || lower === "leave") {
+      if (currentUser.role === "admin") chatBotReply("Admin: visit Leave tab to approve/reject requests.");
+      else chatBotReply("Employee: visit Leave tab to apply for leave.");
+      return;
+    }
+    if (lower === "4" || lower === "payroll") {
+      if (currentUser.role === "admin") chatBotReply("Admin: use Payroll tab to generate payslips.");
+      else chatBotReply("Employee: visit Payroll tab to view your payslips.");
+      return;
+    }
+    if (lower === "5" || lower === "help") {
+      chatBotReply("Help: Type 'menu' to show main menu, or '1'..'5' to select an option.");
+      return;
+    }
+    // fallback
+    chatBotReply("Sorry, I didn't get that. Type 'menu' to see options.");
+  }
+  function chatBotReply(text) {
+    const bot = { id: uid("m_"), from: "bot", text };
+    setChatMessages(c => [...c, bot]);
+  }
+  function showQuickSummary() {
+    // produce summary based on role
+    if (!currentUser) {
+      chatBotReply("Please log in to see a summary.");
+      return;
+    }
+    if (currentUser.role === "admin") {
+      const totalEmployees = store.employees.length;
+      const pendingLeaves = store.leaves.filter(l => l.status === "Pending").length;
+      const today = todayISO();
+      const todaysAttendance = store.attendance.filter(a => a.date === today).length;
+      chatBotReply(`Admin summary — Employees: ${totalEmployees}, Today's attendance: ${todaysAttendance}, Pending leaves: ${pendingLeaves}`);
+    } else {
+      const emp = currentEmployeeRecord();
+      if (!emp) {
+        chatBotReply("No employee record linked to your account.");
+        return;
       }
-      setEditing(null);
-    };
-
-    return (
-      <div>
-        <div style={S.headerRow}>
-          <h2 style={{ margin: 0 }}>Product Management</h2>
-          <div>
-            <button style={S.btn()} onClick={startNew}>+ New Product</button>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16 }}>
-          <div>
-            <div style={S.cardGrid}>
-              {products.map((p) => (
-                <div key={p.id} style={S.card}>
-                  <img src={p.image} alt={p.name} style={S.img} />
-                  <h3>{p.name}</h3>
-                  <p style={S.small}>{p.description}</p>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>${p.price}</div>
-                      <div style={{ fontSize: 12, color: "#446" }}>Stock: {p.stock}</div>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button style={S.btn()} onClick={() => setEditing(p.id)}>Edit</button>
-                      <button style={S.btn("#e24b4b")} onClick={() => deleteProduct(p.id)}>Delete</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <aside style={{ ...S.card }}>
-            <h3 style={{ marginTop: 0 }}>{editing ? (editing === "new" ? "New Product" : "Edit Product") : "Select a product"}</h3>
-            <div style={S.formRow}>
-              <label className="small">Name</label>
-              <input style={S.input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </div>
-            <div style={S.formRow}>
-              <label className="small">Description</label>
-              <textarea style={{ ...S.input, height: 80 }} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <input type="number" style={{ ...S.input, width: "50%" }} value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} />
-              <input type="number" style={{ ...S.input, width: "50%" }} value={form.stock} onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })} />
-            </div>
-            <div style={S.formRow}>
-              <label className="small">Image URL</label>
-              <input style={S.input} value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} placeholder="https://..." />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button style={S.btn(theme.lightBlue)} onClick={save} disabled={!editing}>Save</button>
-              <button style={S.btn("#888")} onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </aside>
-        </div>
-      </div>
-    );
+      const myLeaves = store.leaves.filter(l => l.employeeId === emp.id).length;
+      const myPayslips = store.payslips.filter(p => p.employeeId === emp.id).length;
+      chatBotReply(`Hi ${emp.name} — your leaves: ${myLeaves}, payslips: ${myPayslips}`);
+    }
   }
 
-  /* ---------- Shop view ---------- */
-  const ShopView = () => {
-    return (
-      <div>
-        <div style={S.headerRow}>
-          <div style={{ display: "flex", gap: 8, width: "100%" }}>
-            <input placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ ...S.input, flex: 1 }} />
-            <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: 8, borderRadius: 8 }}>
-              <option value="">All</option>
-              <option value="lowstock">{`Low stock (<=5)`}</option>
-              <option value="outofstock">Out of stock</option>
-            </select>
-            <button style={S.btn()} onClick={() => { setSearch(""); setFilter(""); }}>Clear</button>
-          </div>
-        </div>
+  /* ---------- Derived UI data ---------- */
+  const unreadCount = store.notifications.filter(n => !n.read).length;
+  const recentNotifs = store.notifications.slice(-6).reverse();
 
-        <div style={S.cardGrid}>
-          {filteredProducts.map((p) => (
-            <div key={p.id} style={S.card}>
-              <img src={p.image} alt={p.name} style={S.img} />
-              <h3>{p.name}</h3>
-              <p style={S.small}>{p.description}</p>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>${p.price}</div>
-                  <div style={S.small}>Stock: {p.stock}</div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <button style={S.btn()} onClick={() => addToCart(p, 1)} disabled={p.stock === 0}>Add</button>
-                  <button style={{ ...S.btn("#999") }} onClick={() => { setView("shop"); alert("Preview only."); }}>Preview</button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  /* ---------- Cart view ---------- */
-  const CartView = () => {
-    return (
-      <div>
-        <div style={S.headerRow}>
-          <h2>Cart</h2>
-        </div>
-        <div style={S.card}>
-          {cart.length === 0 ? <p>Cart is empty</p> : (
-            <>
-              <table style={S.table}>
-                <thead>
-                  <tr>
-                    <th style={S.th}>Product</th>
-                    <th style={S.th}>Price</th>
-                    <th style={S.th}>Qty</th>
-                    <th style={S.th}>Subtotal</th>
-                    <th style={S.th}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cart.map((c) => (
-                    <tr key={c.id}>
-                      <td style={S.td}>{c.name}</td>
-                      <td style={S.td}>${c.price}</td>
-                      <td style={S.td}>
-                        <input type="number" value={c.qty} min={1} style={{ width: 72 }} onChange={(e) => updateCartQty(c.id, Number(e.target.value))} />
-                      </td>
-                      <td style={S.td}>${(c.price * c.qty).toFixed(2)}</td>
-                      <td style={S.td}><button style={{ ...S.btn("#e24b4b") }} onClick={() => updateCartQty(c.id, 0)}>Remove</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>Total: ${totalCart.toFixed(2)}</div>
-                  <div style={S.small}>Taxes and shipping are demo-only (not calculated)</div>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button style={S.btn()} onClick={() => setView("shop")}>Continue Shopping</button>
-                  <button style={S.btn(theme.lightBlue)} onClick={() => {
-                    // simple details prompt
-                    const phone = prompt("Phone number (demo):", "");
-                    checkout({ phone });
-                  }}>Checkout (Demo)</button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  /* ---------- Orders view (both customer & admin) ---------- */
-  const OrdersView = () => {
-    const my = user ? orders.filter((o) => (user.role === "admin" ? true : o.customer === user.username)) : [];
-    return (
-      <div>
-        <div style={S.headerRow}>
-          <h2>Orders {user && user.role !== "admin" ? `— ${user.username}` : ""}</h2>
-          <div style={S.small}>Total orders: {totalOrders} • Sales total: ${totalSales.toFixed(2)}</div>
-        </div>
-        <div style={{ display: "grid", gap: 12 }}>
-          {my.length === 0 ? <div style={S.card}>No orders found.</div> : my.map((o) => (
-            <div key={o.id} style={S.card}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontWeight: 800 }}>Order #{o.id}</div>
-                  <div style={S.small}>Placed: {new Date(o.createdAt).toLocaleString()}</div>
-                </div>
-                <div>
-                  <div style={{ textAlign: "right" }}>
-                    <div>Total: ${o.total.toFixed(2)}</div>
-                    <div style={{ marginTop: 6 }}><span style={S.badge(o.status === "pending" ? "#f59e0b" : o.status === "shipped" ? "#3b82f6" : "#10b981")}>{o.status}</span></div>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 12 }}>
-                <table style={S.table}>
-                  <thead><tr><th style={S.th}>Item</th><th style={S.th}>Qty</th><th style={S.th}>Price</th></tr></thead>
-                  <tbody>
-                    {o.items.map((it) => (<tr key={it.id}><td style={S.td}>{it.name}</td><td style={S.td}>{it.qty}</td><td style={S.td}>${it.price}</td></tr>))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-                {user && user.role === "admin" && (
-                  <>
-                    <button style={S.btn()} onClick={() => updateOrderStatus(o.id, "shipped")}>Mark Shipped</button>
-                    <button style={S.btn("#f97316")} onClick={() => updateOrderStatus(o.id, "delivered")}>Mark Delivered</button>
-                    <button style={S.btn("#e24b4b")} onClick={() => updateOrderStatus(o.id, "cancelled")}>Cancel</button>
-                  </>
-                )}
-                {user && user.role !== "admin" && o.status === "pending" && (
-                  <button style={S.btn("#e24b4b")} onClick={() => { if (!window.confirm("Cancel order?")) return; updateOrderStatus(o.id, "cancelled"); }}>Cancel Order</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  /* ---------- Notifications view ---------- */
-  const NotificationsView = () => {
-    const [title, setTitle] = useState("");
-    const [msg, setMsg] = useState("");
-    return (
-      <div>
-        <div style={S.headerRow}><h2>Notifications</h2></div>
-
-        {user && user.role === "admin" && (
-          <div style={{ ...S.card, marginBottom: 12 }}>
-            <h4>Create Notification</h4>
-            <input style={S.input} placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <textarea style={{ ...S.input, marginTop: 8 }} placeholder="Message" value={msg} onChange={(e) => setMsg(e.target.value)} />
-            <div style={{ marginTop: 8 }}>
-              <button style={S.btn(theme.lightBlue)} onClick={() => { if (!title || !msg) return alert("Fill both"); postNotification(title, msg); setTitle(""); setMsg(""); }}>Post</button>
-            </div>
-          </div>
-        )}
-
-        <div style={S.card}>
-          {notifications.length === 0 ? <p>No notifications</p> : notifications.map((n) => (
-            <div key={n.id} style={{ marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>{n.title}</div>
-                  <div style={S.small}>{new Date(n.postedAt).toLocaleString()}</div>
-                </div>
-                {user && user.role === "admin" && <button style={S.btn("#e24b4b")} onClick={() => removeNotification(n.id)}>Delete</button>}
-              </div>
-              <div style={{ marginTop: 6 }}>{n.message}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  /* ---------- Bookings view ---------- */
-  const BookingsView = () => {
-    const [service, setService] = useState("");
-    const [date, setDate] = useState("");
-    const submitBooking = () => {
-      if (!user) return alert("Login to create booking.");
-      if (!service || !date) return alert("Fill service and date.");
-      createBooking({ service, date, customer: user.username, customerName: user.name });
-      setService(""); setDate("");
-      alert("Booking requested (demo).");
-    };
-
-    return (
-      <div>
-        <div style={S.headerRow}><h2>Bookings</h2></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16 }}>
-          <div>
-            <div style={S.card}>
-              <h4>Request Booking</h4>
-              <div style={S.formRow}><input placeholder="Service (e.g., Consultation)" value={service} onChange={(e) => setService(e.target.value)} style={S.input} /></div>
-              <div style={S.formRow}><input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} style={S.input} /></div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button style={S.btn()} onClick={submitBooking}>Request</button>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-              <h4>Your bookings</h4>
-              {bookings.filter(b => user ? (user.role === "admin" ? true : b.customer === user.username) : false).length === 0 ? <div style={S.card}>No bookings</div> :
-                bookings.filter(b => user ? (user.role === "admin" ? true : b.customer === user.username) : false).map(b => (
-                  <div key={b.id} style={{ ...S.card, marginBottom: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{b.service}</div>
-                        <div style={S.small}>{new Date(b.createdAt).toLocaleString()}</div>
-                        <div style={S.small}>For: {new Date(b.date).toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <div style={S.badge(b.status === "requested" ? "#f59e0b" : b.status === "confirmed" ? "#3b82f6" : "#10b981")}>{b.status}</div>
-                      </div>
-                    </div>
-                    {user && user.role === "admin" && (
-                      <div style={{ marginTop: 8 }}>
-                        <button style={S.btn()} onClick={() => updateBookingStatus(b.id, "confirmed")}>Confirm</button>
-                        <button style={S.btn("#e24b4b")} onClick={() => updateBookingStatus(b.id, "cancelled")}>Cancel</button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              }
-            </div>
-          </div>
-
-          <aside>
-            <div style={S.card}>
-              <h4>All Bookings (Admin)</h4>
-              <div style={S.small}>Total: {bookings.length}</div>
-            </div>
-          </aside>
-        </div>
-      </div>
-    );
-  };
-
-  /* ---------- Dashboard ---------- */
-  const DashboardView = () => (
-    <div>
-      <div style={S.headerRow}>
-        <h2>Dashboard</h2>
-        <div style={S.small}>Role: {user ? user.role : "guest"}</div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
-        <div style={S.card}>
-          <div style={{ fontSize: 12 }} className="small">Products</div>
-          <div style={{ fontWeight: 700, fontSize: 22 }}>{totalProducts}</div>
-        </div>
-        <div style={S.card}>
-          <div style={{ fontSize: 12 }} className="small">Orders</div>
-          <div style={{ fontWeight: 700, fontSize: 22 }}>{totalOrders}</div>
-        </div>
-        <div style={S.card}>
-          <div style={{ fontSize: 12 }} className="small">Total Sales</div>
-          <div style={{ fontWeight: 700, fontSize: 22 }}>${totalSales.toFixed(2)}</div>
-        </div>
-        <div style={S.card}>
-          <div style={{ fontSize: 12 }} className="small">Cart Items</div>
-          <div style={{ fontWeight: 700, fontSize: 22 }}>{cart.length}</div>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <h3>Recent Orders</h3>
-        <div>
-          {orders.slice(0, 5).map(o => (
-            <div key={o.id} style={S.card}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div>#{o.id} • {o.customerName}</div>
-                <div style={S.small}>{new Date(o.createdAt).toLocaleString()}</div>
-              </div>
-              <div style={{ marginTop: 6 }}>
-                <div style={S.small}>Total: ${o.total.toFixed(2)} • {o.items.length} items</div>
-              </div>
-            </div>
-          ))}
-          {orders.length === 0 && <div style={S.card}>No orders yet.</div>}
-        </div>
-      </div>
-    </div>
-  );
-
-  /* ---------- profile ---------- */
-  const ProfileView = () => (
-    <div>
-      <div style={S.headerRow}><h2>Profile</h2></div>
-      <div style={S.card}>
-        {user ? (
-          <>
-            <div><strong>Name:</strong> {user.name}</div>
-            <div><strong>Username:</strong> {user.username}</div>
-            <div><strong>Role:</strong> {user.role}</div>
-          </>
-        ) : <div>Not logged in.</div>}
-      </div>
-    </div>
-  );
-
-  /* ---------- main render ---------- */
-  if (!user && view === "login") return <LoginView />;
-  if (!user && view !== "login") {
-    // show login prompt in sidebar or allow shop browse as guest
-  }
-
+  /* ---------- Component UI ---------- */
   return (
-    <div style={S.page}>
-      {!user && view === "login" ? <LoginView /> : null}
-      <div style={S.appWrap}>
-        <Sidebar />
-        <main style={S.main}>
-          {/* top header */}
-          <div style={S.headerRow}>
-            <div>
-              <h1 style={{ margin: 0, color: theme.blue }}>VictorLabs Demo Store</h1>
-              <div style={S.small}>A complete frontend-only e-commerce demo (localStorage)</div>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div style={S.small}>{user ? `Signed in as ${user.username}` : "Guest"}</div>
-              <button style={S.btn("#6b7280")} onClick={() => { LS.set(PROD_KEY, SAMPLE_PRODUCTS); setProducts(SAMPLE_PRODUCTS); alert("Products reset to sample."); }}>Reset Products</button>
-            </div>
-          </div>
+    <div style={styles.app}>
+      {/* HEADER */}
+      <header style={styles.header}>
+        <div style={styles.headerLeft}>
+          <div style={styles.logo}>VictorLabs — EMS Demo</div>
+          <div style={{ marginLeft: 8 }} className="tagline">Frontend-only demo</div>
+        </div>
 
-          {/* content switch */}
-          <div>
-            {view === "login" && <LoginView />}
-            {view === "dashboard" && <DashboardView />}
-            {view === "shop" && <ShopView />}
-            {view === "cart" && <CartView />}
-            {view === "orders" && <OrdersView />}
-            {view === "notifications" && <NotificationsView />}
-            {view === "bookings" && <BookingsView />}
-            {view === "profile" && <ProfileView />}
-            {view === "admin" && user && user.role === "admin" && <AdminProductManager />}
-            {!user && view !== "login" && user === null && (
-              <div style={S.card}>
-                <h3>Guest Mode</h3>
-                <p className="small">You can browse products but please login/register to add to cart or checkout.</p>
-                <button style={S.btn()} onClick={() => setView("login")}>Login / Register</button>
+        <div style={styles.headerRight}>
+          <div style={styles.notifArea}>
+            <button style={styles.notifBtn} onClick={() => setNotifOpen(!notifOpen)} aria-label="Notifications">
+              🔔
+              {unreadCount > 0 && <span style={styles.notifCount}>{unreadCount}</span>}
+            </button>
+            {notifOpen && (
+              <div style={styles.notifPanel}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <strong>Notifications</strong>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button style={{ ...styles.button, padding: "6px 9px", background: "#10b981" }} onClick={() => { markAllNotifRead(); }}>Mark all read</button>
+                    <button style={{ ...styles.button, padding: "6px 9px", background: "#ef4444" }} onClick={() => { setStore(prev => ({ ...prev, notifications: [] })); }}>Clear</button>
+                  </div>
+                </div>
+                <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                  {recentNotifs.length === 0 && <div style={{ color: "#6b7280" }}>No notifications</div>}
+                  {recentNotifs.map(n => (
+                    <div key={n.id} style={{ padding: 8, borderBottom: "1px solid #eef2f7" }}>
+                      <div style={{ fontSize: 14 }}>{n.text}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>{new Date(n.createdAt).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
+
+          <div style={{ color: "white", marginLeft: 12 }}>
+            {currentUser ? `${currentUser.name} (${currentUser.role})` : "Not signed in"}
+          </div>
+          {currentUser ? (
+            <button style={{ ...styles.button, marginLeft: 10 }} onClick={() => logout()}>Logout</button>
+          ) : null}
+        </div>
+      </header>
+
+      {/* MAIN */}
+      <div style={styles.main}>
+        {/* SIDEBAR */}
+        <aside style={styles.sidebar}>
+          <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 6 }}>Navigation</div>
+          <NavButton label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />
+          {currentUser && currentUser.role === "admin" && <NavButton label="Employees" active={view === "employees"} onClick={() => setView("employees")} />}
+          <NavButton label="Attendance" active={view === "attendance"} onClick={() => setView("attendance")} />
+          <NavButton label="Leave" active={view === "leave"} onClick={() => setView("leave")} />
+          <NavButton label="Payroll" active={view === "payroll"} onClick={() => setView("payroll")} />
+          <div style={{ marginTop: "auto", fontSize: 13, opacity: 0.8 }}>
+            Demo — no backend • localStorage persistence
+          </div>
+        </aside>
+
+        {/* CONTENT */}
+        <main style={styles.mainContent}>
+          {/* If not logged in: show login card */}
+          {!currentUser && (
+            <div style={{ maxWidth: 540, margin: "20px auto" }}>
+              <div style={styles.sectionCard}>
+                <h2 style={{ margin: 0 }}>Sign in to EMS Demo</h2>
+                <p style={{ color: "#6b7280", marginTop: 6 }}>Use the demo credentials below</p>
+                <LoginCard onLogin={login} />
+                <div style={{ marginTop: 10, color: "#6b7280" }}>
+                  Admin: <span className="badge">admin@test.com / 1234</span><br />
+                  Employee: <span className="badge">user@test.com / 1234</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* If logged in: show selected view */}
+          {currentUser && (
+            <>
+              {view === "dashboard" && (
+                <div>
+                  <div style={styles.sectionCard}>
+                    <h2 style={{ marginTop: 0 }}>Dashboard</h2>
+                    <div style={styles.smallCardRow}>
+                      <div style={styles.statCard}>
+                        <div style={{ fontSize: 12 }}>Employees</div>
+                        <div style={{ fontSize: 24, fontWeight: 700 }}>{store.employees.length}</div>
+                      </div>
+                      <div style={styles.statCard}>
+                        <div style={{ fontSize: 12 }}>Today's Attendance</div>
+                        <div style={{ fontSize: 24, fontWeight: 700 }}>{store.attendance.filter(a => a.date === todayISO()).length}</div>
+                      </div>
+                      <div style={styles.statCard}>
+                        <div style={{ fontSize: 12 }}>Pending Leaves</div>
+                        <div style={{ fontSize: 24, fontWeight: 700 }}>{store.leaves.filter(l => l.status === "Pending").length}</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <strong>Recent Notifications</strong>
+                          <button style={{ ...styles.button, padding: "6px 8px" }} onClick={() => setNotifOpen(!notifOpen)}>View</button>
+                        </div>
+                        <div>
+                          {store.notifications.slice(-5).reverse().map(n => (
+                            <div key={n.id} style={{ padding: 10, borderRadius: 8, marginBottom: 8, background: "#fbfdff", border: "1px solid #f1f5f9" }}>
+                              <div style={{ fontSize: 14 }}>{n.text}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280" }}>{new Date(n.createdAt).toLocaleString()}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ width: 260 }}>
+                        <div style={{ marginBottom: 8 }}><strong>Quick Actions</strong></div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <button style={styles.button} onClick={() => setView("attendance")}>Mark Attendance</button>
+                          <button style={styles.button} onClick={() => setView("leave")}>Apply Leave</button>
+                          {currentUser.role === "admin" && <button style={styles.button} onClick={() => setView("employees")}>Manage Employees</button>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent payslips */}
+                  <div style={styles.sectionCard}>
+                    <h3 style={{ marginTop: 0 }}>Recent Payslips</h3>
+                    {store.payslips.length === 0 ? <div style={{ color: "#6b7280" }}>No payslips generated yet.</div> : (
+                      <table style={styles.table}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>Employee</th>
+                            <th style={styles.th}>Month/Year</th>
+                            <th style={styles.th}>Net</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {store.payslips.slice(-5).reverse().map(ps => (
+                            <tr key={ps.id}>
+                              <td style={styles.td}>{employeeByIdUI(store, ps.employeeId).name}</td>
+                              <td style={styles.td}>{ps.month}/{ps.year}</td>
+                              <td style={styles.td}>${ps.net}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {view === "employees" && currentUser.role === "admin" && (
+                <div style={styles.sectionCard}>
+                  <h2 style={{ marginTop: 0 }}>Employee Management</h2>
+                  <EmployeeManager employees={store.employees} onAdd={addEmployee} onRemove={removeEmployee} />
+                </div>
+              )}
+
+              {view === "attendance" && (
+                <div style={styles.sectionCard}>
+                  <h2>Attendance</h2>
+                  <AttendanceView
+                    employees={store.employees}
+                    attendance={store.attendance}
+                    onMark={(empId, status) => markAttendance(empId, status)}
+                    currentUser={currentUser}
+                  />
+                </div>
+              )}
+
+              {view === "leave" && (
+                <div style={styles.sectionCard}>
+                  <h2>Leave Requests</h2>
+                  <LeaveView
+                    currentUser={currentUser}
+                    employees={store.employees}
+                    leaves={store.leaves}
+                    onApply={(empId, s, e, r) => applyLeave(empId, s, e, r)}
+                    onSetStatus={(id, status) => setLeaveStatus(id, status)}
+                  />
+                </div>
+              )}
+
+              {view === "payroll" && (
+                <div style={styles.sectionCard}>
+                  <h2>Payroll</h2>
+                  <PayrollView
+                    currentUser={currentUser}
+                    employees={store.employees}
+                    payslips={store.payslips}
+                    onGenerate={(empId, month, year) => generatePayslip(empId, month, year)}
+                  />
+                </div>
+              )}
+            </>
+          )}
         </main>
+      </div>
+
+      {/* CHATBOT */}
+      <div style={styles.chatToggle} title="Open assistant" onClick={() => setChatOpen(v => !v)}>💬</div>
+      {chatOpen && (
+        <div style={styles.chatWindow}>
+          <div style={styles.chatHeader}>
+            <div>EMS Assistant</div>
+            <div style={{ fontSize: 12 }}>
+              <button style={{ ...styles.ghostButton, padding: "6px 8px" }} onClick={() => { setChatMessages([{ id: uid("m_"), from: "bot", text: "Hi — EMS assistant here. Type 'menu' or '1'..'5'." }]); setChatMenuPointer([]); }}>Reset</button>
+              <button style={{ ...styles.ghostButton, padding: "6px 8px", marginLeft: 8 }} onClick={() => setChatOpen(false)}>Close</button>
+            </div>
+          </div>
+          <div style={styles.chatBody}>
+            {chatMessages.map(m => (
+              <div key={m.id} style={{ marginBottom: 8, display: "flex", justifyContent: m.from === "bot" ? "flex-start" : "flex-end" }}>
+                <div style={{ maxWidth: "78%", padding: 8, borderRadius: 8, background: m.from === "bot" ? "#eff6ff" : "#0369a1", color: m.from === "bot" ? "#0f172a" : "white", fontSize: 14 }}>
+                  {m.text}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={styles.chatInputRow}>
+            <input style={{ flex: 1, padding: 8, borderRadius: 6, border: "1px solid #e6eef6" }} placeholder="Type 'menu' or an option number..." onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = e.target.value;
+                e.target.value = "";
+                chatSendUser(val);
+              }
+            }} />
+            <button style={styles.button} onClick={() => {
+              // find input in DOM (quick hack to stay single file)
+              const root = document.activeElement;
+              // fallback: take value from first input
+              const inp = document.querySelector('.chat-input-row-placeholder') || document.querySelector('input[placeholder="Type \'menu\' or an option number..."]');
+              if (inp) {
+                const v = inp.value;
+                inp.value = "";
+                chatSendUser(v);
+              } else {
+                chatBotReply("No input found.");
+              }
+            }}>Send</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Small UI subcomponents ---------- */
+
+function NavButton({ label, active, onClick }) {
+  return (
+    <button onClick={onClick} style={{ display: "block", textAlign: "left", padding: "10px 12px", borderRadius: 8, background: active ? "#06263a" : "transparent", border: "none", color: "white", cursor: "pointer" }}>
+      {label}
+    </button>
+  );
+}
+
+function LoginCard({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+
+  return (
+    <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+      <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={{ padding: 10, borderRadius: 8, border: "1px solid #e6eef6" }} />
+      <input placeholder="Password" type="password" value={pass} onChange={e => setPass(e.target.value)} style={{ padding: 10, borderRadius: 8, border: "1px solid #e6eef6" }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button style={styles.button} onClick={() => onLogin(email.trim(), pass)}>Sign in</button>
+        <button style={{ ...styles.ghostButton }} onClick={() => { setEmail("admin@test.com"); setPass("1234"); }}>Fill Admin</button>
+        <button style={{ ...styles.ghostButton }} onClick={() => { setEmail("user@test.com"); setPass("1234"); }}>Fill Employee</button>
       </div>
     </div>
   );
+}
+
+/* Employees manager */
+function EmployeeManager({ employees, onAdd, onRemove }) {
+  const [name, setName] = useState("");
+  const [department, setDepartment] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [salary, setSalary] = useState("");
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <input placeholder="Full name" value={name} onChange={e => setName(e.target.value)} style={styles.input} />
+        <input placeholder="Department" value={department} onChange={e => setDepartment(e.target.value)} style={styles.input} />
+        <input placeholder="Job title" value={jobTitle} onChange={e => setJobTitle(e.target.value)} style={styles.input} />
+        <input placeholder="Salary" value={salary} onChange={e => setSalary(e.target.value)} style={styles.input} />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <button style={styles.button} onClick={() => {
+          if (!name) return alert("Name required");
+          onAdd({ name, department, jobTitle, salary });
+          setName(""); setDepartment(""); setJobTitle(""); setSalary("");
+        }}>Add employee</button>
+      </div>
+
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th style={styles.th}>Name</th>
+            <th style={styles.th}>Department</th>
+            <th style={styles.th}>Job title</th>
+            <th style={styles.th}>Salary</th>
+            <th style={styles.th}>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {employees.map(e => (
+            <tr key={e.id}>
+              <td style={styles.td}>{e.name}</td>
+              <td style={styles.td}>{e.department}</td>
+              <td style={styles.td}>{e.jobTitle}</td>
+              <td style={styles.td}>${e.salary}</td>
+              <td style={styles.td}><button style={{ ...styles.button, background: "#ef4444" }} onClick={() => onRemove(e.id)}>Remove</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* Attendance view */
+function AttendanceView({ employees, attendance, onMark, currentUser }) {
+  const me = currentUser.role === "employee" ? (employees.find(e => e.name.toLowerCase().includes(currentUser.name.split(" ")[0].toLowerCase())) || null) : null;
+  const today = todayISO();
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+        {currentUser.role === "admin" ? (
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: 8 }}><strong>Mark attendance (Admin)</strong></div>
+            <AttendanceAdminForm employees={employees} onMark={onMark} />
+          </div>
+        ) : (
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: 8 }}><strong>Your Attendance</strong></div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={styles.button} onClick={() => { if (!me) return alert("No employee record linked to your account"); onMark(me.id, "Present"); }}>Mark Present</button>
+              <button style={{ ...styles.button, background: "#ef4444" }} onClick={() => { if (!me) return alert("No employee record linked to your account"); onMark(me.id, "Absent"); }}>Mark Absent</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ width: 300 }}>
+          <div style={{ marginBottom: 8 }}><strong>Today's attendance</strong></div>
+          <div style={{ background: "#fbfdff", padding: 10, borderRadius: 8 }}>
+            {attendance.filter(a => a.date === today).length === 0 ? <div style={{ color: "#6b7280" }}>No records yet</div> :
+              attendance.filter(a => a.date === today).map(a => (
+                <div key={a.id} style={{ padding: 6, borderBottom: "1px dashed #eef2f7" }}>{employees.find(e => e.id === a.employeeId)?.name} — <span style={{ fontWeight: 700 }}>{a.status}</span></div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h4 style={{ marginBottom: 8 }}>Attendance History (most recent)</h4>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Date</th>
+              <th style={styles.th}>Employee</th>
+              <th style={styles.th}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {attendance.slice(-20).reverse().map(a => (
+              <tr key={a.id}>
+                <td style={styles.td}>{a.date}</td>
+                <td style={styles.td}>{employees.find(e => e.id === a.employeeId)?.name}</td>
+                <td style={styles.td}>{a.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function AttendanceAdminForm({ employees, onMark }) {
+  const [sel, setSel] = useState(employees[0]?.id || "");
+  const [status, setStatus] = useState("Present");
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <select value={sel} onChange={e => setSel(e.target.value)} style={{ padding: 8, borderRadius: 6, border: "1px solid #e6eef6", flex: 1 }}>
+        <option value="">-- select employee --</option>
+        {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.department})</option>)}
+      </select>
+      <select value={status} onChange={e => setStatus(e.target.value)} style={{ padding: 8, borderRadius: 6, border: "1px solid #e6eef6" }}>
+        <option>Present</option>
+        <option>Absent</option>
+        <option>Remote</option>
+      </select>
+      <button style={styles.button} onClick={() => { if (!sel) return alert("Select employee"); onMark(sel, status); }}>Mark</button>
+    </div>
+  );
+}
+
+/* Leave view */
+function LeaveView({ currentUser, employees, leaves, onApply, onSetStatus }) {
+  const me = currentUser.role === "employee" ? (employees.find(e => e.name.toLowerCase().includes(currentUser.name.split(" ")[0].toLowerCase())) || null) : null;
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [reason, setReason] = useState("");
+  const [empSel, setEmpSel] = useState(employees[0]?.id || "");
+
+  return (
+    <div>
+      {currentUser.role === "employee" ? (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 8 }}><strong>Apply for leave</strong></div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="date" value={start} onChange={e => setStart(e.target.value)} style={styles.input} />
+            <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={styles.input} />
+            <input placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} style={styles.input} />
+            <button style={styles.button} onClick={() => {
+              if (!me) return alert("No employee record linked");
+              if (!start || !end) return alert("Dates required");
+              onApply(me.id, start, end, reason || "No reason");
+              setStart(""); setEnd(""); setReason("");
+            }}>Apply</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 8 }}><strong>Apply leave on behalf</strong></div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <select value={empSel} onChange={e => setEmpSel(e.target.value)} style={styles.input}>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+            <input type="date" value={start} onChange={e => setStart(e.target.value)} style={styles.input} />
+            <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={styles.input} />
+            <input placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} style={styles.input} />
+            <button style={styles.button} onClick={() => {
+              if (!empSel || !start || !end) return alert("Select employee and dates");
+              onApply(empSel, start, end, reason || "No reason");
+              setStart(""); setEnd(""); setReason("");
+            }}>Apply</button>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h4 style={{ marginBottom: 8 }}>Leave requests</h4>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Employee</th>
+              <th style={styles.th}>Range</th>
+              <th style={styles.th}>Reason</th>
+              <th style={styles.th}>Status</th>
+              <th style={styles.th}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leaves.map(l => (
+              <tr key={l.id}>
+                <td style={styles.td}>{employees.find(e => e.id === l.employeeId)?.name}</td>
+                <td style={styles.td}>{l.startDate} → {l.endDate}</td>
+                <td style={styles.td}>{l.reason}</td>
+                <td style={styles.td}>{l.status}</td>
+                <td style={styles.td}>
+                  {currentUser.role === "admin" && (
+                    <>
+                      <button style={{ ...styles.button, padding: "6px 8px" }} onClick={() => onSetStatus(l.id, "Approved")}>Approve</button>
+                      <button style={{ ...styles.button, background: "#ef4444", padding: "6px 8px", marginLeft: 6 }} onClick={() => onSetStatus(l.id, "Rejected")}>Reject</button>
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {leaves.length === 0 && <tr><td style={styles.td} colSpan={5}>No leave requests</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* Payroll view */
+function PayrollView({ currentUser, employees, payslips, onGenerate }) {
+  const [empSel, setEmpSel] = useState(employees[0]?.id || "");
+  const [month, setMonth] = useState("");
+  const [year, setYear] = useState(new Date().getFullYear());
+
+  return (
+    <div>
+      {currentUser.role === "admin" ? (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <select value={empSel} onChange={e => setEmpSel(e.target.value)} style={{ padding: 8, borderRadius: 6 }}>
+              <option value="">Select employee</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+            <input placeholder="Month (1-12)" value={month} onChange={e => setMonth(e.target.value)} style={{ padding: 8, borderRadius: 6, width: 140 }} />
+            <input placeholder="Year" value={year} onChange={e => setYear(e.target.value)} style={{ padding: 8, borderRadius: 6, width: 100 }} />
+            <button style={styles.button} onClick={() => {
+              if (!empSel || !month || !year) return alert("Select employee, month and year");
+              onGenerate(empSel, Number(month), Number(year));
+              setMonth(""); setYear(new Date().getFullYear());
+            }}>Generate payslip</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 12, color: "#6b7280" }}>
+          Employees can view payslips generated for them in the list below.
+        </div>
+      )}
+
+      <div>
+        <h4 style={{ marginBottom: 8 }}>Payslips</h4>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Employee</th>
+              <th style={styles.th}>Month/Year</th>
+              <th style={styles.th}>Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            {payslips.length === 0 && <tr><td style={styles.td} colSpan={3}>No payslips</td></tr>}
+            {payslips.slice().reverse().map(p => (
+              <tr key={p.id}>
+                <td style={styles.td}>{employeeByIdUI({ employees }, p.employeeId).name}</td>
+                <td style={styles.td}>{p.month}/{p.year}</td>
+                <td style={styles.td}>${p.net}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* small UI helper used earlier to avoid referencing closure vars incorrectly */
+function employeeByIdUI(store, id) {
+  return store.employees.find(e => e.id === id) || { name: "—" };
+}
+function employeeByIdUI2(employees, id) {
+  return employees.find(e => e.id === id) || { name: "—" };
+}
+function employeeByIdUI_plain(employees, id) {
+  return employees.find(e => e.id === id) || { name: "—" };
+}
+// helper wrapper used inside table render (safe)
+function employeeByIdUIWrapper(store, id) {
+  return employeeByIdUI(store, id);
 }
